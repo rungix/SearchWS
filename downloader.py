@@ -4,7 +4,10 @@ import random
 import time
 from datetime import datetime
 import socket
-
+import re
+from termcolor import colored
+import os
+from os.path import splitext
 
 DEFAULT_AGENT = 'SearchWS Agent'
 DEFAULT_DELAY = 5
@@ -13,6 +16,11 @@ DEFAULT_TIMEOUT = 60
 
 
 class Downloader:
+
+    # http://www.noah.org/wiki/RegEx_Python
+    WS_REGEX = 'ws[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\(\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+'
+    URL_REGEX = 'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\(\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+'
+
     def __init__(self, delay=DEFAULT_DELAY, user_agent=DEFAULT_AGENT,
                  proxies=None, num_retries=DEFAULT_RETRIES,
                  timeout=DEFAULT_TIMEOUT, opener=None, cache=None):
@@ -23,9 +31,13 @@ class Downloader:
         self.num_retries = num_retries
         self.opener = opener
         self.cache = cache
+        self.url_regex = re.compile(Downloader.URL_REGEX, re.IGNORECASE)
+        self.ws_regex = re.compile(Downloader.WS_REGEX, re.IGNORECASE)
+
 
     def __call__(self, url):
         result = None
+        record = {}
         if self.cache:
             try:
                 result = self.cache[url]
@@ -43,24 +55,76 @@ class Downloader:
             headers = {'User-agent': self.user_agent}
             result = self.download(url, headers, proxy=proxy,
                                    num_retries=self.num_retries)
-            if self.cache:
-                # save result to cache
-                self.cache[url] = result
+            ws_urls = set()
+            js_urls = set()
+            html_urls = set()
+            for ws_url in self.find_ws_links(result['html']):
+                print("WS/WSS URL %s in HTML: %s" % (colored(ws_url, 'red'), url))
+                ws_urls.add(ws_url)
+                html_urls.add(url)
+            for js_url in self.find_js_links(result['html']):
+                print('Downloading JS: ' + colored(js_url, 'cyan'))
+                js = self.download(js_url, headers, proxy=proxy,
+                                   num_retries=self.num_retries)
+                for ws_url in self.find_ws_links(js['html']):
+                    print("WS/WSS URL %s in JS: %s" % (colored(ws_url, 'green'), js_url))
+                    ws_urls.add(ws_url)
+                    js_urls.add(js_url)
+            print('PID %d saving %s info to DB...' % (os.getpid(), url))
+            for ws in ws_urls:
+                print(colored(ws, 'green'))
+            if ws_urls:
+                record['ws_urls'] = list(ws_urls)
+                if html_urls:
+                    record['html_urls'] = list(html_urls)
+                if js_urls:
+                    record['js_urls'] = list(js_urls)
+                if self.cache:
+                # save ws result to cache
+                    self.cache[url] = record
         return result['html']
 
+    def get_ext(self, url):
+        """Return the filename extension from url, or ''."""
+        parsed = urlparse.urlparse(url)
+        root, ext = splitext(parsed.path)
+        return ext  # or ext[1:] if you don't want the leading '.'
+
+    def find_js_links(self, html):
+        """Return a list of js links from HTML
+        """
+        print("PID %d Finding js links...." % os.getpid())
+        links = re.findall(self.url_regex, html)
+        js_urls = set()
+        for link in links:
+            if self.get_ext(link).lower() == '.js':
+                js_urls.add(link)
+
+        return list(js_urls) if js_urls else []
+
+    def find_ws_links(self, html):
+        """Return a list of ws/wss urls from HTML or JS
+        """
+        print("PID %d Finding ws links...." % os.getpid())
+        ws_links = re.findall(self.ws_regex, html)
+        ws_urls = set()
+        for ws_link in ws_links:
+            ws_urls.add(ws_link)
+        return list(ws_urls) if ws_urls else []
+
     def download(self, url, headers, proxy, num_retries, data=None):
-        print('Downloading:', url)
+        print('PID %d Downloading %s:' % (os.getpid(), url))
         request = urllib2.Request(url, data, headers or {})
         opener = self.opener or urllib2.build_opener()
         if proxy:
             proxy_params = {urlparse.urlparse(url).scheme: proxy}
             opener.add_handler(urllib2.ProxyHandler(proxy_params))
         try:
-            response = opener.open(request)
+            response = opener.open(request, timeout=10)
             html = response.read()
             code = response.code
         except Exception as e:
-            print('Download error:', str(e))
+            print('Download error:', str(e), url)
             html = ''
             if hasattr(e, 'code'):
                 code = e.code

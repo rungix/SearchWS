@@ -13,7 +13,7 @@ class MongoQueue:
     True
     >>> q.repair() # immediate repair will do nothin
     >>> q.pop() # another pop should be empty
-    >>> q.peek() 
+    >>> q.peek()
     >>> import time; time.sleep(timeout) # wait for timeout
     >>> q.repair() # now repair will release URL
     Released: test
@@ -35,7 +35,7 @@ class MongoQueue:
         port: the port to connect to MongoDB
         timeout: the number of seconds to allow for a timeout
         """
-        self.client = MongoClient() if client is None else client
+        self.client = MongoClient(connect=False) if client is None else client
         self.db = self.client.cache
         self.timeout = timeout
 
@@ -43,7 +43,7 @@ class MongoQueue:
         """Returns True if there are more jobs to process
         """
         record = self.db.crawl_queue.find_one(
-            {'status': {'$ne': self.COMPLETE}} 
+            {'status': {'$ne': self.COMPLETE}}
         )
         return True if record else False
 
@@ -60,7 +60,7 @@ class MongoQueue:
         If the queue is empty a KeyError exception is raised.
         """
         record = self.db.crawl_queue.find_and_modify(
-            query={'status': self.OUTSTANDING}, 
+            query={'status': self.OUTSTANDING},
             update={'$set': {'status': self.PROCESSING, 'timestamp': datetime.now()}}
         )
         if record:
