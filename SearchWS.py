@@ -13,7 +13,7 @@ def main(max_threads):
     crawl_queue = MongoQueue()
     crawl_queue.clear()
     seed_url = 'http://s3.amazonaws.com/alexa-static/top-1m.csv.zip'
-    alexa = AlexaCallback(max_urls=10**4)
+    alexa = AlexaCallback(max_urls=4)
     try:
         links = alexa(seed_url) or []
     except Exception as e:

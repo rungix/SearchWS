@@ -16,7 +16,7 @@ def threaded_crawler(delay=5, cache=None, user_agent='SearchWS', proxies=None, n
     # the queue of URL's that still need to be crawled
     crawl_queue = MongoQueue()
     # crawl_queue.clear()
-    D = Downloader(cache=cache, delay=delay, user_agent=user_agent, proxies=proxies, num_retries=num_retries, timeout=timeout)
+    D = Downloader(cache=cache, delay=delay, user_agent=user_agent, proxies=proxies, num_retries=num_retries, max_depth=3, timeout=timeout)
 
     def process_queue():
         while True:
@@ -29,14 +29,14 @@ def threaded_crawler(delay=5, cache=None, user_agent='SearchWS', proxies=None, n
                 break
             else:
                 print("PID %d processes %s" % (os.getpid(), url))
-                html = D(url)
+                D(url)
                 crawl_queue.complete(url)
                 print("PID %d processed %s" % (os.getpid(), url))
 
     # wait for all download threads to finish
     threads = []
     while threads or crawl_queue.peek():
-        print("PID %d len of thread %d" % (os.getpid(), len(threads)))
+        # print("PID %d len of thread %d" % (os.getpid(), len(threads)))
         for thread in threads:
             if not thread.is_alive():
                 threads.remove(thread)
@@ -48,14 +48,14 @@ def threaded_crawler(delay=5, cache=None, user_agent='SearchWS', proxies=None, n
             thread.start()
             threads.append(thread)
         time.sleep(SLEEP_TIME)
-        print("PID %d sleeping..." % os.getpid())
+        # print("PID %d sleeping..." % os.getpid())
     print("PID %d exiting..." % os.getpid())
 
 
 def process_crawler(**kwargs):
     num_cpus = multiprocessing.cpu_count()
     #pool = multiprocessing.Pool(processes=num_cpus)
-    print '>>>>> Starting {} processes'.format(num_cpus)
+    print('>>>>> Starting {%d} processes' % (num_cpus))
     processes = []
     for i in range(num_cpus):
         p = multiprocessing.Process(target=threaded_crawler, kwargs=kwargs)
