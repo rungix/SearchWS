@@ -3,13 +3,13 @@
 import csv
 from zipfile import ZipFile
 from StringIO import StringIO
-from mongo_cache import MongoCache
+from mongo_ws_urls import MongoWSURL
 import urllib2
 
 
 class AlexaCallback:
-    def __init__(self, max_urls=1000):
-        self.max_urls = max_urls
+    def __init__(self, max_websites=1000):
+        self.max_urls = max_websites
 
     def __call__(self, seed_url):
         print("Download Alexa TOP " + seed_url)
@@ -18,7 +18,7 @@ class AlexaCallback:
         zipped_data = response.read()
         zipped_code = response.code
         print("Download Alexa response code: %d " % zipped_code)
-        cache = MongoCache()
+        cache = MongoWSURL()
         urls = []
         with ZipFile(StringIO(zipped_data)) as zf:
             csv_filename = zf.namelist()[0]

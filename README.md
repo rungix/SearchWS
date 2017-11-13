@@ -1,3 +1,12 @@
-# SearchWS
+usage: SearchWS.py [-h] -t THREADS -w WEBSITES -d DEPTH
 
-Scraper based on https://bitbucket.org/wswp, still needs to fix download.py to extract the relative urls.
+A Simple Crawler
+
+optional arguments:
+  -h, --help            show this help message and exit
+  -t THREADS, --threads THREADS
+                        number of threads per processor
+  -w WEBSITES, --websites WEBSITES
+                        number of websites to crawl
+  -d DEPTH, --depth DEPTH
+                        link depth when crawling

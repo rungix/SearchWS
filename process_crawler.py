@@ -2,45 +2,48 @@ import time
 import urlparse
 import threading
 import multiprocessing
-from mongo_cache import MongoCache
-from mongo_queue import MongoQueue
+from mongo_ws_urls import MongoWSURL
+from mongo_crawling_queue import MongoCrawlingQueue
 from downloader import Downloader
 import os
 
 SLEEP_TIME = 1
 
 
-def threaded_crawler(delay=5, cache=None, user_agent='SearchWS', proxies=None, num_retries=1, max_threads=10, timeout=60):
+def threaded_crawler(delay=5, ws_urls_cache=None, user_agent='SearchWS', proxies=None, num_retries=1, max_threads=10, timeout=60, depth=3):
     """Crawl using multiple threads
     """
     # the queue of URL's that still need to be crawled
-    crawl_queue = MongoQueue()
-    # crawl_queue.clear()
-    D = Downloader(cache=cache, delay=delay, user_agent=user_agent, proxies=proxies, num_retries=num_retries, max_depth=3, timeout=timeout)
+    crawling_queue = MongoCrawlingQueue()
+    # crawling_queue.clear()
+    D = Downloader(ws_urls_cache=ws_urls_cache, delay=delay, user_agent=user_agent,
+                   proxies=proxies, num_retries=num_retries,
+                   depth=depth, timeout=timeout)
 
     def process_queue():
         while True:
             # keep track that are processing url
             try:
-                url = crawl_queue.pop()
+                url, depth = crawling_queue.pop()
+                print(">>> Pop url %s depth %d" % (url, depth))
             except KeyError:
                 # currently no urls to process
                 print("PID %d: currently no urls to process, thread exiting..." % os.getpid())
                 break
             else:
                 print("PID %d processes %s" % (os.getpid(), url))
-                D(url)
-                crawl_queue.complete(url)
+                D(url, depth)
+                crawling_queue.complete(url)
                 print("PID %d processed %s" % (os.getpid(), url))
 
     # wait for all download threads to finish
     threads = []
-    while threads or crawl_queue.peek():
+    while threads or crawling_queue.peek():
         # print("PID %d len of thread %d" % (os.getpid(), len(threads)))
         for thread in threads:
             if not thread.is_alive():
                 threads.remove(thread)
-        while len(threads) < max_threads and crawl_queue.peek():
+        while len(threads) < max_threads and crawling_queue.peek():
             # can start some more threads
             print("PID %d starts new thread" % os.getpid())
             thread = threading.Thread(target=process_queue)

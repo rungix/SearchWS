@@ -8,6 +8,8 @@ import re
 from termcolor import colored
 import os
 from os.path import splitext
+from mongo_crawling_queue import MongoCrawlingQueue
+from mongo_crawled_url import MongoCrawledURL
 
 DEFAULT_AGENT = 'SearchWS Agent'
 DEFAULT_DELAY = 5
@@ -26,8 +28,8 @@ class Downloader:
 
     def __init__(self, delay=DEFAULT_DELAY, user_agent=DEFAULT_AGENT,
                  proxies=None, num_retries=DEFAULT_RETRIES,
-                 max_depth=DEFAULT_DEPTH,
-                 timeout=DEFAULT_TIMEOUT, opener=None, cache=None):
+                 depth=DEFAULT_DEPTH,
+                 timeout=DEFAULT_TIMEOUT, opener=None, ws_urls_cache=None):
         socket.setdefaulttimeout(timeout)
         self.throttle = Throttle(delay)
         self.user_agent = user_agent
@@ -35,35 +37,39 @@ class Downloader:
         self.num_retries = num_retries
         self.max_depth = DEFAULT_DEPTH
         self.opener = opener
-        self.cache = cache
+        self.ws_urls_cache = ws_urls_cache
         self.js_regex = re.compile(Downloader.JS_REGEX, re.IGNORECASE)
         self.ws_regex = re.compile(Downloader.WS_REGEX, re.IGNORECASE)
         self.webpage_regex = re.compile(Downloader.WEB_REGEX, re.IGNORECASE)
+        self.crawling_queue = MongoCrawlingQueue()
+        self.crawled_url = MongoCrawledURL()
 
-    def __call__(self, seed_url, link_depth=3):
-        self.crawl(seed_url, link_depth)
+    def __call__(self, seed_url, depth=3):
+        self.crawl(seed_url, depth)
         return
 
     def crawl(self, url, depth):
         record = None
-        if self.cache:
+        if self.ws_urls_cache:
             try:
-                record = self.cache[url]
+                record = self.ws_urls_cache[url]
             except KeyError:
-                # url is not available in cache
+                # url is not available in ws_urls_cache
                 pass
             else:
                 # if self.num_retries > 0 and 500 <= record['code'] < 600:
-                    # server error so ignore result from cache and re-download
+                    # server error so ignore result from ws_urls_cache and re-download
                     # result = None
-                print('%s hits cache' % url)
+                print('%s hits WS URL cache' % url)
         if record is None:
             self.throttle.wait(url)
             page = self.download_parse(url, depth)
             if depth == 0:
                 return
             for link in self.get_webpage_links(url, page):
-                self.crawl(link, depth-1)
+                print("<<< add %s depth %d to queue" % (link, depth-1))
+                if link not in self.crawled_url:
+                    self.crawling_queue.push(link, depth-1)
         return
 
     def download_parse(self, url, depth):
@@ -71,7 +77,7 @@ class Downloader:
         proxy = random.choice(self.proxies) if self.proxies else None
         headers = {'User-agent': self.user_agent}
         result = self.download(url, headers, proxy=proxy,
-                               num_retries=self.num_retries)
+                               num_retries=self.num_retries, depth=depth)
         ws_urls = set()
         js_urls = set()
         html_urls = set()
@@ -82,7 +88,7 @@ class Downloader:
         for js_url in self.find_js_links(url, result['html']):
             print('Downloading JS: ' + colored(js_url, 'cyan'))
             js = self.download(js_url, headers, proxy=proxy,
-                               num_retries=self.num_retries)
+                               num_retries=self.num_retries, depth=depth)
             for ws_url in self.find_ws_links(url, js['html']):
                 print("WS/WSS URL %s in JS: %s" % (colored(ws_url, 'green'), js_url))
                 ws_urls.add(ws_url)
@@ -96,10 +102,10 @@ class Downloader:
                 record['html_urls'] = list(html_urls)
             if js_urls:
                 record['js_urls'] = list(js_urls)
-            if self.cache:
+            if self.ws_urls_cache:
             # save ws result to cache
                 record['depth'] = self.max_depth - depth
-                self.cache[url] = record
+                self.ws_urls_cache[url] = record
         return result['html']
 
     def get_webpage_links(self, url, html):
@@ -135,7 +141,7 @@ class Downloader:
     def find_js_links(self, url, html):
         """Return a list of js links from HTML
         """
-        print("PID %d Finding js links...." % os.getpid())
+        # print("PID %d Finding js links...." % os.getpid())
         links = re.findall(self.js_regex, html)
         js_urls = set()
         for link in links:
@@ -147,15 +153,16 @@ class Downloader:
     def find_ws_links(self, url, html):
         """Return a list of ws/wss urls from HTML or JS
         """
-        print("PID %d Finding ws links...." % os.getpid())
+        # print("PID %d Finding ws links...." % os.getpid())
         ws_links = re.findall(self.ws_regex, html)
         ws_urls = set()
         for ws_link in ws_links:
             ws_urls.add(ws_link)
         return list(ws_urls) if ws_urls else []
 
-    def download(self, url, headers, proxy, num_retries, data=None):
+    def download(self, url, headers, proxy, num_retries, depth, data=None):
         print('PID %d Downloading %s:' % (os.getpid(), url))
+        self.crawled_url[url] = depth
         request = urllib2.Request(url, data, headers or {})
         opener = self.opener or urllib2.build_opener()
         if proxy:
@@ -173,7 +180,7 @@ class Downloader:
                 if num_retries > 0 and 500 <= code < 600:
                     # retry 5XX HTTP errors
                     return self.download(url, headers, proxy,
-                                         num_retries-1, data)
+                                         num_retries-1, depth, data)
             else:
                 code = None
         return {'html': html, 'code': code}

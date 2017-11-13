@@ -2,7 +2,7 @@ from datetime import datetime, timedelta
 from pymongo import MongoClient, errors
 
 
-class MongoQueue:
+class MongoCrawlingQueue:
     """
     >>> timeout = 1
     >>> url = 'http://example.webscraping.com'
@@ -36,22 +36,22 @@ class MongoQueue:
         timeout: the number of seconds to allow for a timeout
         """
         self.client = MongoClient(connect=False) if client is None else client
-        self.db = self.client.cache
+        self.db = self.client.searchws
         self.timeout = timeout
 
     def __nonzero__(self):
         """Returns True if there are more jobs to process
         """
-        record = self.db.crawl_queue.find_one(
+        record = self.db.crawling_queue.find_one(
             {'status': {'$ne': self.COMPLETE}}
         )
         return True if record else False
 
-    def push(self, url):
+    def push(self, url, depth):
         """Add new URL to queue if does not exist
         """
         try:
-            self.db.crawl_queue.insert({'_id': url, 'status': self.OUTSTANDING})
+            self.db.crawling_queue.insert({'_id': url, 'status': self.OUTSTANDING, 'depth': depth})
         except errors.DuplicateKeyError as e:
             pass # this is already in the queue
 
@@ -59,28 +59,28 @@ class MongoQueue:
         """Get an outstanding URL from the queue and set its status to processing.
         If the queue is empty a KeyError exception is raised.
         """
-        record = self.db.crawl_queue.find_and_modify(
+        record = self.db.crawling_queue.find_and_modify(
             query={'status': self.OUTSTANDING},
             update={'$set': {'status': self.PROCESSING, 'timestamp': datetime.now()}}
         )
         if record:
-            return record['_id']
+            return record['_id'], record['depth']
         else:
             self.repair()
             raise KeyError()
 
     def peek(self):
-        record = self.db.crawl_queue.find_one({'status': self.OUTSTANDING})
+        record = self.db.crawling_queue.find_one({'status': self.OUTSTANDING})
         if record:
-            return record['_id']
+            return record['_id'], record['depth']
 
     def complete(self, url):
-        self.db.crawl_queue.update({'_id': url}, {'$set': {'status': self.COMPLETE}})
+        self.db.crawling_queue.update({'_id': url}, {'$set': {'status': self.COMPLETE}})
 
     def repair(self):
         """Release stalled jobs
         """
-        record = self.db.crawl_queue.find_and_modify(
+        record = self.db.crawling_queue.find_and_modify(
             query={
                 'timestamp': {'$lt': datetime.now() - timedelta(seconds=self.timeout)},
                 'status': {'$ne': self.COMPLETE}
@@ -88,7 +88,7 @@ class MongoQueue:
             update={'$set': {'status': self.OUTSTANDING}}
         )
         if record:
-            print 'Released:', record['_id']
+            print('Released: %s (depth %d)'%(record['_id'], record['depth']))
 
     def clear(self):
-        self.db.crawl_queue.drop()
+        self.db.crawling_queue.drop()
