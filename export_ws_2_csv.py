@@ -25,6 +25,6 @@ if __name__ == '__main__':
             except Exception as e: # errors.DuplicateKeyError as e:
                 print("Error: ", e)
                 pass # this is already in the queue
-    os.system('cat  ws_urls.csv | awk -F "," "{print $2}" | sort  | uniq -c')
-    os.system('cat  ws_urls.csv | wc')
-    os.system('cat  ws_urls.csv | awk -F "," "{print $2}" | sort  | uniq -c | wc')
+    os.system("cat  ws_urls.csv | awk -F ',' '{print $2}' | sort  | uniq -c")
+    os.system("cat  ws_urls.csv | wc")
+    os.system("cat  ws_urls.csv | awk -F ',' '{print $2}' | sort  | uniq -c | wc")
